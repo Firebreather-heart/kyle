@@ -9,6 +9,7 @@ import (
 
 type Provider interface{
 	Generate(systemPrompt string, userPrompt string) models.LLMResponse
+	GenerateComplex(messages []models.Prompt, tools []models.Tool) models.LLMResponse
 }
 
 func NewProvider(cfg *config.AppConfig, providerType string) (Provider, error) {
@@ -16,7 +17,7 @@ func NewProvider(cfg *config.AppConfig, providerType string) (Provider, error) {
 	case "gemini":
 		return NewGeminiClient(cfg.GEMINI_API_KEY), nil
 	case "kimi":
-		return NewKimiClient(cfg.KIMI_API_KEY), nil
+		return NewKIMIClient(cfg.KIMI_API_KEY), nil
 	default:
 		return nil, fmt.Errorf("unknown provider type: %s", providerType)
 	}
