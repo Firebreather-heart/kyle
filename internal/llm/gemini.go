@@ -13,8 +13,8 @@ type GeminiClient struct {
 
 func (c *GeminiClient) Generate(systemPrompt string, userPrompt string) models.LLMResponse {
 	payload := models.LLMRequest{
-		Model:       "gemini-3.1-flash-preview",
-		Temperature: 0.2,
+		Model:       "gemini-2.5-flash",
+		Temperature: 0.4,
 		Messages: []models.Prompt{
 			{Role: "system", Content: systemPrompt},
 			{Role: "user", Content: userPrompt},
@@ -25,7 +25,7 @@ func (c *GeminiClient) Generate(systemPrompt string, userPrompt string) models.L
 
 func (c *GeminiClient) GenerateComplex(messages []models.Prompt, tools []models.Tool) models.LLMResponse {
 	payload := models.LLMRequest{
-		Model:       "gemini-3.1-flash-preview",
+		Model:       "gemini-2.5-flash",
 		Temperature: 0.3,
 		Messages:    messages,
 		Tools:       tools,

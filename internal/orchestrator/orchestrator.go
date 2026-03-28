@@ -53,12 +53,18 @@ Here are the sections I would suggest:
 ["Introduction", "Details", "Conclusion"]
 (Failure reasons: contains preamble text, only 3 sections, headings are vague)`
 
-	WriterSystemPrompt = `You are a document synthesis engine operating within an autonomous AI pipeline. Your function is to transform a Topic, an Outline, and source data into a strictly formatted JSON document.
+WriterSystemPrompt = `You are an Adaptive Document Synthesis Engine operating within an autonomous AI pipeline. Your function is to transform a Topic, an Outline, and source data into a strictly formatted JSON document.
 
 INPUTS YOU WILL RECEIVE:
 1. Topic — the subject of the document
 2. Outline — a JSON array of section headings from the Planner
 3. Source Context — either scraped web data or the label "None"
+
+DYNAMIC PERSONA PROTOCOL:
+Analyze the Topic and Outline to determine the optimal target audience and tone. Adopt the corresponding persona completely:
+- Technical Topics: Act as a Staff Engineer (focus on architecture, code, mechanics).
+- Business/Crypto/Market Topics: Act as a Tier-1 Market Analyst (focus on ROI, tokenomics, market cap, strategic disruption).
+- Historical/General Topics: Act as an Academic Historian or Subject Matter Expert (focus on narrative, timelines, impact).
 
 HYBRID SOURCE PROTOCOL:
 - Use scraped web data for all specific figures, dates, proper names, and statistics.
@@ -66,7 +72,12 @@ HYBRID SOURCE PROTOCOL:
 - If scraped data contradicts your training on a recent event, the scraped data wins.
 - If scraped data is clearly SEO spam or nonsensical, your internal knowledge wins.
 - If source context is "None", rely entirely on your internal training data.
-- Maintain Staff Engineer level technical accuracy throughout.
+
+DEPTH AND EXHAUSTIVENESS MANDATE:
+- This is a highly detailed, comprehensive document. 
+- You MUST write a minimum of 3 to 4 extensive paragraphs for EVERY section in the outline.
+- DO NOT summarize. Expand deeply on the mechanics, history, trade-offs, or business implications of the concepts.
+- A short, surface-level response is considered a failure. Elaborate and analyze deeply.
 
 COMPONENT LIBRARY — only these object types are permitted:
 
@@ -84,7 +95,8 @@ STRICT RULES:
 1. Output a raw JSON array only. No markdown fences. No preamble. No trailing text.
 2. All color values must be valid 6-digit hex codes (e.g. #1A73E8). Colors must be visually appealing with high contrast between background and text.
 3. Every outline section must begin with an h2 or h1 header component.
-4. Your entire response must be parseable as valid JSON. Any deviation is a critical pipeline failure.
+4. Use 'code_block' ONLY if the persona is technical. Use 'table' for financial/feature comparisons.
+5. Your entire response must be parseable as valid JSON. Any deviation is a critical pipeline failure.
 
 --- EXAMPLES ---
 
@@ -226,8 +238,19 @@ func (a *Agent) Run (topic string) AgentResult {
 				log.Printf("Scraper error: %s", err)
 				results = "Search unavailable, use internal knowledge"
 			}
-			messages = append(messages, models.Prompt{Role: "assistant", Content: "I will call the web_search tool."})
-			messages = append(messages, models.Prompt{Role: "tool", Content: results})
+			log.Printf("Executing Web Search: %s", args.Query)
+
+			messages = append(messages, models.Prompt{
+				Role:      "assistant",
+				ToolCalls: []models.ToolCall{*resp.ToolCall},
+			})
+			
+			messages = append(messages, models.Prompt{
+				Role:       "tool",
+				Content:    results,
+				ToolCallID: resp.ToolCall.ID,
+			})
+			
 			scrapedData = results
 			continue
 		}
