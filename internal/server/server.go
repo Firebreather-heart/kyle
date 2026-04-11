@@ -4,11 +4,14 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"fmt"
+	"strings"
 
 	"github.com/firebreather-heart/kyle/internal/config"
 	"github.com/firebreather-heart/kyle/internal/llm"
 	"github.com/firebreather-heart/kyle/internal/models"
 	"github.com/firebreather-heart/kyle/internal/orchestrator"
+	"github.com/firebreather-heart/kyle/internal/docxgen"
 )
 
 type APIServer struct {
@@ -50,15 +53,25 @@ func (s *APIServer) HandleResearch(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("Received research request for topic: %s", req.Topic)
 
-	if s.Config.GEMINI_API_KEY == "" {
-		http.Error(w, "Server configuration error: Missing API Key", http.StatusInternalServerError)
+	if s.Config.KIMI_API_KEY == "" {
+		http.Error(w, "Server configuration error: Missing Kimi API Key", http.StatusInternalServerError)
 		return
 	}
 
-	engine := llm.NewGeminiClient(s.Config.GEMINI_API_KEY)
+	engine := llm.NewKIMIClient(s.Config.KIMI_API_KEY)
 	agent := orchestrator.NewAgent(engine)
 	
 	result := agent.Run(req.Topic)
+
+	if result.Status == "success" && result.Document != nil {
+		wordFilename := fmt.Sprintf("research_%s.docx", strings.ReplaceAll(strings.ToLower(req.Topic), " ", "_"))
+		if err := docxgen.GenerateWordDoc(wordFilename, result.Document); err != nil {
+			log.Printf("Error generating Word doc: %v", err)
+			http.Error(w, fmt.Sprintf("Pipeline succeeded but Word doc generation failed: %v", err), http.StatusInternalServerError)
+			return
+		}
+		log.Printf("Word doc generated: %s", wordFilename)
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	if result.Status == "substandard" {

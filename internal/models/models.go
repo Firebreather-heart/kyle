@@ -17,10 +17,11 @@ type LLMClient struct {
 }
 
 type Prompt struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
-	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`  
-	ToolCallID string     `json:"tool_call_id,omitempty"` 
+	Role             string     `json:"role"`
+	Content          string     `json:"content"`
+	ReasoningContent string     `json:"reasoning_content,omitempty"`
+	ToolCalls        []ToolCall `json:"tool_calls,omitempty"`
+	ToolCallID       string     `json:"tool_call_id,omitempty"`
 }
 
 type Tool struct {
@@ -37,14 +38,16 @@ type FunctionDefinition struct {
 type LLMRequest struct {
 	Model       string   `json:"model"`
 	Temperature float64  `json:"temperature"`
+	MaxTokens   int      `json:"max_tokens,omitempty"`
 	Messages    []Prompt `json:"messages"`
 	Tools       []Tool   `json:"tools,omitempty"`
 }
 
 type LLMResponse struct {
-	Response string
-	ToolCall *ToolCall
-	Error    error
+	Response         string
+	ReasoningContent string
+	ToolCall         *ToolCall
+	Error            error
 }
 
 type ToolCall struct {
@@ -60,9 +63,10 @@ type ToolCall struct {
 type RawAPIResponse struct {
 	Choices []struct {
 		Message struct {
-			Role      string     `json:"role"`
-			Content   string     `json:"content"`
-			ToolCalls []ToolCall `json:"tool_calls,omitempty"`
+			Role             string     `json:"role"`
+			Content          string     `json:"content"`
+			ReasoningContent string     `json:"reasoning_content,omitempty"`
+			ToolCalls        []ToolCall `json:"tool_calls,omitempty"`
 		} `json:"message"`
 	} `json:"choices"`
 }
@@ -71,6 +75,23 @@ type RawAPIResponse struct {
 type ContentBlock struct {
 	Type            string     `json:"type"`
 	Content         string     `json:"content,omitempty"`
+	BackgroundColor string     `json:"background_color,omitempty"`
+	TextColor       string     `json:"text_color,omitempty"`
+	Icon            string     `json:"icon,omitempty"`
+	Language        string     `json:"language,omitempty"`
+	Headers         []string   `json:"headers,omitempty"`
+	Rows            [][]string `json:"rows,omitempty"`
+	Items           []string   `json:"items,omitempty"`
+}
+
+type AIBlock struct {
+	Type            string     `json:"type"`
+	Content         string     `json:"content,omitempty"`
+	HeadingFont     string     `json:"heading_font,omitempty"`
+	BodyFont        string     `json:"body_font,omitempty"`
+	PrimaryColor    string     `json:"primary_color,omitempty"`
+	SecondaryColor  string     `json:"secondary_color,omitempty"`
+	LayoutDensity   string     `json:"layout_density,omitempty"`
 	BackgroundColor string     `json:"background_color,omitempty"`
 	TextColor       string     `json:"text_color,omitempty"`
 	Icon            string     `json:"icon,omitempty"`

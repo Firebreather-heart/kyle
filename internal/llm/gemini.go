@@ -15,6 +15,7 @@ func (c *GeminiClient) Generate(systemPrompt string, userPrompt string) models.L
 	payload := models.LLMRequest{
 		Model:       "gemini-2.5-flash",
 		Temperature: 0.4,
+		MaxTokens:   32000,
 		Messages: []models.Prompt{
 			{Role: "system", Content: systemPrompt},
 			{Role: "user", Content: userPrompt},
@@ -27,6 +28,7 @@ func (c *GeminiClient) GenerateComplex(messages []models.Prompt, tools []models.
 	payload := models.LLMRequest{
 		Model:       "gemini-2.5-flash",
 		Temperature: 0.3,
+		MaxTokens:   32000,
 		Messages:    messages,
 		Tools:       tools,
 	}
@@ -39,7 +41,7 @@ func NewGeminiClient(apiKey string) *GeminiClient {
 		LLMClient: models.LLMClient{
 			APIKey: apiKey,
 			HTTPClient: &http.Client{
-				Timeout: 120 * time.Second,
+				Timeout: 360 * time.Second,
 			},
 			RequestURI: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
 		},

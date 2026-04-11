@@ -50,12 +50,14 @@ func SendPrompt(payload models.LLMRequest, c models.LLMClient) models.LLMRespons
 
 	if len(choice.ToolCalls) > 0 {
 		return models.LLMResponse{
-			ToolCall: &choice.ToolCalls[0],
-			Response: choice.Content,
+			ReasoningContent: choice.ReasoningContent,
+			ToolCall:         &choice.ToolCalls[0],
+			Response:         choice.Content,
 		}
 	}
 
 	return models.LLMResponse{
-		Response: choice.Content,
+		ReasoningContent: choice.ReasoningContent,
+		Response:         choice.Content,
 	}
 }

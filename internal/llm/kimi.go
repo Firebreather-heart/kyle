@@ -13,8 +13,9 @@ type KIMIClient struct {
 
 func (c *KIMIClient) Generate(systemPrompt string, userPrompt string) models.LLMResponse {
 	payload := models.LLMRequest{
-		Model:       "kimi-k2-thinking",
-		Temperature: 0.2,
+		Model:       "kimi-k2.5",
+		Temperature: 1,
+		MaxTokens:   32000,
 		Messages: []models.Prompt{
 			{Role: "system", Content: systemPrompt},
 			{Role: "user", Content: userPrompt},
@@ -25,8 +26,9 @@ func (c *KIMIClient) Generate(systemPrompt string, userPrompt string) models.LLM
 
 func (c *KIMIClient) GenerateComplex(messages []models.Prompt, tools []models.Tool) models.LLMResponse {
 	payload := models.LLMRequest{
-		Model:       "kimi-k2-thinking",
-		Temperature: 0.3,
+		Model:       "kimi-k2.5",
+		Temperature: 1,
+		MaxTokens:   32000,
 		Messages:    messages,
 		Tools:       tools,
 	}
@@ -39,9 +41,9 @@ func NewKIMIClient(apiKey string) *KIMIClient {
 		LLMClient: models.LLMClient{
 			APIKey: apiKey,
 			HTTPClient: &http.Client{
-				Timeout: 120 * time.Second,
+				Timeout: 360 * time.Second,
 			},
-			RequestURI: "https://api.moonshot.cn/v1/chat/completions",
+			RequestURI: "https://api.moonshot.ai/v1/chat/completions",
 		},
 	}
 }

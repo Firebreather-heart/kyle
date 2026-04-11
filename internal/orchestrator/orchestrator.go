@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/firebreather-heart/kyle/internal/llm"
 	"github.com/firebreather-heart/kyle/internal/models"
@@ -19,39 +20,34 @@ OPERATING PROTOCOL:
 3. DECIDE:
    - If the topic requires real-time data or specific facts (e.g., "Current stock prices"), you MUST call the 'web_search' tool.
    - If the topic is a general concept you know well, proceed to step 4.
-4. OUTPUT: A STRICT JSON array of enough section headings matching the detected persona and sufficient to satisfy the request.
+4. OUTPUT: A STRICT JSON array of highly granular section headings matching the detected persona.
+
+EXHAUSTIVENESS & GRANULARITY MANDATE:
+You are architecting a comprehensive, professional-grade document. 
+- DO NOT output a short list of 3 or 4 broad headers. 
+- You MUST break the topic down into a highly granular array of 8 to 15 specific, detailed section headings. 
+- Avoid generic headers like "Introduction" or "Conclusion". Use highly specific thematic headers (e.g., "Genesis of the Protocol", "Future Market Implications").
 
 STRICT RULES:
 - If you call a tool, do not output an outline yet. Wait for the tool result first.
 - Your final output must be ONLY a raw JSON array of strings.
-- No markdown formatting. No backticks. No preamble. No trailing text.
+- No markdown formatting. No backticks. No preamble.
 - Any response that is not a raw JSON array is a pipeline failure.
 
 --- EXAMPLES ---
 
-EXAMPLE 1 — Technical topic:
+EXAMPLE 1 — Technical topic (High Granularity):
 Topic: "How Raft consensus algorithm works"
 Correct output:
-["Overview of Distributed Consensus", "Raft Leader Election", "Log Replication Mechanics", "Safety and Fault Tolerance", "Comparison with Paxos", "Operational Considerations"]
+["The Problem of Distributed State Machines", "Byzantine vs Non-Byzantine Failures", "Raft Node States: Leader, Follower, Candidate", "The Mechanics of Leader Election", "Handling Split Votes and Timeouts", "Log Replication and The AppendEntries RPC", "Commit Conditions and Quorum", "Safety Guarantees and Log Matching Property", "Handling Network Partitions (Split Brain)", "Log Compaction and Snapshotting", "Performance Trade-offs vs Multi-Paxos"]
 
-EXAMPLE 2 — Historical topic:
-Topic: "The fall of the Roman Empire"
-Correct output:
-["The Empire at Its Peak", "Political Fragmentation and Civil War", "Economic Collapse and Inflation", "Military Overextension and Barbarian Pressure", "The Final Decades and Aftermath"]
-
-EXAMPLE 3 — Product/business topic:
-Topic: "Stripe's payment processing architecture"
-Correct output:
-["System Architecture Overview", "Payment Intent Lifecycle", "Fraud Detection and Radar", "Webhook Reliability and Retry Logic", "Scaling and Fault Isolation"]
-
-EXAMPLE 4 — Topic where web search is required:
+EXAMPLE 2 — Topic where web search is required:
 Topic: "Current federal interest rates"
 Correct action: Call the 'web_search' tool. Do NOT output an outline until results are returned.
 
 EXAMPLE OF INVALID OUTPUT (pipeline failure):
-Here are the sections I would suggest:
-["Introduction", "Details", "Conclusion"]
-(Failure reasons: contains preamble text, only 3 sections, headings are vague)`
+["Introduction", "How it works", "Conclusion"]
+(Failure reasons: severely lacks granularity, headers are generic, fails the 8-15 header mandate)`
 
 WriterSystemPrompt = `You are an Adaptive Document Synthesis Engine operating within an autonomous AI pipeline. Your function is to transform a Topic, an Outline, and source data into a strictly formatted JSON document.
 
@@ -75,12 +71,13 @@ HYBRID SOURCE PROTOCOL:
 
 DEPTH AND EXHAUSTIVENESS MANDATE:
 - This is a highly detailed, comprehensive document. 
-- You MUST write a minimum of 3 to 4 extensive paragraphs for EVERY section in the outline.
+- You MUST write a minimum of 3 to 4 extensive paragraphs for EVERY section in the outline, be as verbose and correct as you can be.
 - DO NOT summarize. Expand deeply on the mechanics, history, trade-offs, or business implications of the concepts.
 - A short, surface-level response is considered a failure. Elaborate and analyze deeply.
 
 COMPONENT LIBRARY — only these object types are permitted:
 
+{"type": "document_meta", "heading_font": "Merriweather"|"Playfair Display"|"Montserrat"|"Oswald", "body_font": "Lora"|"Open Sans"|"Roboto"|"Georgia", "primary_color": "#RRGGBB", "secondary_color": "#RRGGBB", "layout_density": "academic"|"modern"|"corporate"}
 {"type": "h1", "content": "string"}
 {"type": "h2", "content": "string"}
 {"type": "h3", "content": "string"}
@@ -93,15 +90,17 @@ COMPONENT LIBRARY — only these object types are permitted:
 
 STRICT RULES:
 1. Output a raw JSON array only. No markdown fences. No preamble. No trailing text.
-2. All color values must be valid 6-digit hex codes (e.g. #1A73E8). Colors must be visually appealing with high contrast between background and text.
-3. Every outline section must begin with an h2 or h1 header component.
-4. Use 'code_block' ONLY if the persona is technical. Use 'table' for financial/feature comparisons.
-5. Your entire response must be parseable as valid JSON. Any deviation is a critical pipeline failure.
+2. The VERY FIRST item in your JSON array MUST be the "document_meta" object. You must analyze the topic and select the best combination of fonts, layouts, and hex colors suitable for a printed document.
+3. All color values must be valid 6-digit hex codes (e.g. #1A73E8). Colors must be visually appealing with high contrast between background and text.
+4. Every outline section must begin with an h2 or h1 header component.
+5. Use 'code_block' ONLY if the persona is technical. Use 'table' for financial/feature comparisons.
+6. Your entire response must be parseable as valid JSON. Any deviation is a critical pipeline failure.
 
 --- EXAMPLES ---
 
-EXAMPLE 1 — Correct paragraph and header usage:
+EXAMPLE 1 — Correct document initiation and header usage:
 [
+  {"type": "document_meta", "heading_font": "Montserrat", "body_font": "Open Sans", "primary_color": "#2C3E50", "secondary_color": "#E74C3C", "layout_density": "modern"},
   {"type": "h1", "content": "Raft Consensus Algorithm"},
   {"type": "h2", "content": "Overview of Distributed Consensus"},
   {"type": "paragraph", "content": "Distributed consensus is the problem of getting a cluster of nodes to agree on a single value despite network partitions and node failures. Raft was designed by Ongaro and Ousterhout in 2014 as a more understandable alternative to Paxos."}
@@ -130,50 +129,44 @@ EXAMPLE OF INVALID OUTPUT (pipeline failure):
 {"type": "callout", "color": "#FF0000", "content": "..."}  — wrong field name, missing text_color
 {"type": "callout", "background_color": "red", "text_color": "#FFF", "icon": "info", "content": "..."}  — named color is not a valid hex code`
 
-	VerifierSystemPrompt = `You are a ruthless QA validation engine operating within an autonomous AI pipeline. Your sole function is to audit a JSON document produced by the Writer and return a structured verification result.
+VerifierSystemPrompt = `You are a ruthless QA validation engine operating within an autonomous AI pipeline. Your sole function is to audit a JSON document produced by the Writer and return a structured verification result.
 
 INPUT: A JSON array of component objects produced by the Writer stage.
 
 EVALUATION CRITERIA — check all of the following:
 
 1. JSON VALIDITY — Is the entire document valid, parseable JSON with no syntax errors?
-2. TYPE INTEGRITY — Does every object's "type" field use only permitted values?
-   Permitted types: "h1", "h2", "h3", "paragraph", "callout", "code_block", "table", "unordered_list", "ordered_list"
-   Any unknown or missing "type" field is an immediate failure.
-3. HEX COLOR VALIDITY — For every callout object, do "background_color" and "text_color" exist and contain valid 6-digit hex codes in the format #RRGGBB?
-   Shorthand hex (#RGB), named colors ("red"), or missing fields are failures.
-4. SCHEMA COMPLIANCE — Do all objects include the required fields for their declared type?
+2. META INITIATION — Is the object at index 0 explicitly of type "document_meta"? If not, it is an immediate failure.
+3. META ENUMS — Do the fields in "document_meta" strictly match the permitted values? 
+   - heading_font MUST be one of: "Merriweather", "Playfair Display", "Montserrat", "Oswald"
+   - body_font MUST be one of: "Lora", "Open Sans", "Roboto", "Georgia"
+   - layout_density MUST be one of: "academic", "modern", "corporate"
+4. TYPE INTEGRITY — Does every object's "type" field use only permitted values?
+   Permitted types: "document_meta", "h1", "h2", "h3", "paragraph", "callout", "code_block", "table", "unordered_list", "ordered_list".
+5. HEX COLOR VALIDITY — For every "callout" and "document_meta" object, do the color fields exist and contain valid 6-digit hex codes in the format #RRGGBB? Shorthand or named colors are failures.
+6. SCHEMA COMPLIANCE — Do all objects include the required fields for their declared type?
+   - document_meta requires: heading_font, body_font, primary_color, secondary_color, layout_density
    - callout requires: background_color, text_color, icon, content
    - table requires: headers (array), rows (array of arrays)
    - code_block requires: language, content
-   - unordered_list and ordered_list require: items (array)
    - h1/h2/h3 and paragraph require: content
-5. ICON VALIDITY — All callout "icon" fields must be exactly "info", "warning", or "check". Any other value is a failure.
-6. TONE — Is the content technical and authoritative? Flag colloquial, vague, or promotional language.
+7. ICON VALIDITY — All callout "icon" fields must be exactly "info", "warning", or "check". 
+8. EXHAUSTIVENESS CHECK — Does the document look substantial? Flag if headers are followed by only a single short paragraph. It must be detailed.
+9. TONE — Is the content authoritative and aligned with the persona? Flag colloquial or promotional language.
 
 OUTPUT RULES:
 - Output a single raw JSON object only.
-- No markdown. No backticks. No preamble. No trailing text.
 - Schema: {"status": "pass" | "fail", "reason": "string"}
 - On pass: {"status": "pass", "reason": "All checks passed."}
 - On fail: {"status": "fail", "reason": "Detailed enumeration of every issue found, including the index of the offending component."}
 
 --- EXAMPLES ---
 
-EXAMPLE 1 — Pass result:
-{"status": "pass", "reason": "All checks passed."}
+EXAMPLE 1 — Fail: Enum Violation:
+{"status": "fail", "reason": "Component at index 0 (document_meta) has invalid layout_density 'compact'. Permitted values are academic, modern, corporate."}
 
-EXAMPLE 2 — Fail: invalid type at index 4:
-{"status": "fail", "reason": "Component at index 4 has an invalid type value 'highlight'. Permitted types are h1, h2, h3, paragraph, callout, code_block, table, unordered_list, ordered_list."}
-
-EXAMPLE 3 — Fail: multiple issues:
-{"status": "fail", "reason": "Component at index 2 (callout) has background_color value 'blue' which is a named color, not a valid 6-digit hex code. Component at index 7 (callout) is missing the required 'text_color' field. Component at index 11 has an invalid icon value 'alert'; permitted values are info, warning, check."}
-
-EXAMPLE 4 — Fail: JSON syntax error:
-{"status": "fail", "reason": "Document is not valid JSON. Parsing failed at character 1042: unexpected token ',' after closing brace."}
-
-EXAMPLE 5 — Fail: tone issue:
-{"status": "fail", "reason": "Component at index 9 (paragraph) contains colloquial language: 'This is super important and really cool.' Rewrite to match Staff Engineer register."}
+EXAMPLE 2 — Fail: Exhaustiveness Violation:
+{"status": "fail", "reason": "Component at index 4 (h2) is followed by only one brief paragraph before the next header. Expand on the mechanics deeply."}
 
 Any response from you that is not a raw, valid JSON object matching this schema is itself a pipeline failure.`
 )
@@ -241,8 +234,9 @@ func (a *Agent) Run (topic string) AgentResult {
 			log.Printf("Executing Web Search: %s", args.Query)
 
 			messages = append(messages, models.Prompt{
-				Role:      "assistant",
-				ToolCalls: []models.ToolCall{*resp.ToolCall},
+				Role:             "assistant",
+				ToolCalls:        []models.ToolCall{*resp.ToolCall},
+				ReasoningContent: resp.ReasoningContent,
 			})
 			
 			messages = append(messages, models.Prompt{
@@ -273,12 +267,37 @@ func (a *Agent) Run (topic string) AgentResult {
 			Message: "Writer Error: " + writerResp.Error.Error(),
 		}
 	}
+	cleanWriterResp := stripMarkdownFences(writerResp.Response)
+
+	var validateBlocks []models.AIBlock
+	if err := json.Unmarshal([]byte(cleanWriterResp), &validateBlocks); err != nil {
+		log.Printf("Writer produced invalid JSON, attempting one correction pass: %v", err)
+
+		correctionPrompt := fmt.Sprintf(
+			"The following document JSON is malformed. Fix ALL syntax errors and return ONLY a valid raw JSON array. No markdown, no explanation.\n\nERROR: %v\n\nBROKEN JSON:\n%s",
+			err, cleanWriterResp,
+		)
+		corrResp := a.engine.Generate(WriterSystemPrompt, correctionPrompt)
+		if corrResp.Error != nil {
+			return AgentResult{Status: "error", Message: "JSON correction failed: " + corrResp.Error.Error()}
+		}
+		cleanWriterResp = stripMarkdownFences(corrResp.Response)
+		if err2 := json.Unmarshal([]byte(cleanWriterResp), &validateBlocks); err2 != nil {
+			log.Printf("Writer JSON still invalid after correction: %v", err2)
+			return AgentResult{
+				Status:  "error",
+				Message: fmt.Sprintf("Writer produced malformed JSON that could not be corrected: %v", err2),
+			}
+		}
+		log.Println("JSON correction pass succeeded.")
+	}
 
 	log.Println("Routing to Verifier Agent")
 	var verdict VerifierVerdict
-	verifierResp := a.engine.Generate(VerifierSystemPrompt, writerResp.Response)
+	verifierResp := a.engine.Generate(VerifierSystemPrompt, cleanWriterResp)
 
-	if err := json.Unmarshal([]byte(verifierResp.Response), &verdict); err != nil {
+	cleanVerifierResp := stripMarkdownFences(verifierResp.Response)
+	if err := json.Unmarshal([]byte(cleanVerifierResp), &verdict); err != nil {
 		log.Printf("Verifier returned invalid JSON: %v", err)
 		verdict.Status = "fail"
 		verdict.Reason = "QA Check failed to parse editor response."
@@ -289,7 +308,7 @@ func (a *Agent) Run (topic string) AgentResult {
 		return AgentResult{
 			Status:   "substandard",
 			Message:  "Editor Note: " + verdict.Reason,
-			Document: json.RawMessage(writerResp.Response),
+			Document: json.RawMessage(cleanWriterResp),
 		}
 	}
 
@@ -297,7 +316,7 @@ func (a *Agent) Run (topic string) AgentResult {
 	return AgentResult{
 		Status:   "success",
 		Message:  "Document generated and verified.",
-		Document: json.RawMessage(writerResp.Response),
+		Document: json.RawMessage(cleanWriterResp),
 	}
 }
 
@@ -322,4 +341,18 @@ func GetSearchTool() []models.Tool {
 			},
 		},
 	}
+}
+
+func stripMarkdownFences(s string) string {
+	s = strings.TrimSpace(s)
+	if strings.HasPrefix(s, "```") {
+		if idx := strings.Index(s, "\n"); idx != -1 {
+			s = s[idx+1:]
+		}
+		if idx := strings.LastIndex(s, "```"); idx != -1 {
+			s = s[:idx]
+		}
+		s = strings.TrimSpace(s)
+	}
+	return s
 }
