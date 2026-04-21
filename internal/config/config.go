@@ -14,6 +14,9 @@ type AppConfig struct{
 	DAILY_RATE_LIMIT int
 }
 
+/*
+  Load system configuration for app
+*/
 func Load() *AppConfig{
 	err  := godotenv.Load()
 	if err != nil {
