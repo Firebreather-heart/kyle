@@ -4,9 +4,22 @@ import (
 	"net/http"
 )
 
+type TokenRequest struct {
+	Fingerprint string `json:"fingerprint"`
+}
+
 type ClientRequest struct {
 	Topic    string `json:"topic"`
 	Provider string `json:"provider"`
+	Format   string `json:"format"`
+}
+
+type SSEUpdate struct {
+	Status   string   `json:"status,omitempty"`
+	Progress string   `json:"progress,omitempty"`
+	NewLogs  []string `json:"newLogs,omitempty"`
+	Complete bool     `json:"complete,omitempty"`
+	Result   string   `json:"result,omitempty"`
 }
 
 type LLMClient struct {
@@ -47,6 +60,7 @@ type LLMResponse struct {
 	Response         string
 	ReasoningContent string
 	ToolCall         *ToolCall
+	StatusCode       int
 	Error            error
 }
 

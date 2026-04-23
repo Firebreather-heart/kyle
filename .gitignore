@@ -34,3 +34,11 @@ go.work.sum
 *.doc
 *.pdf
 *.log
+frontend/node_modules/
+
+# Binaries
+kyle-engine
+tmp/
+
+# Next.js build artifacts
+frontend/.next/

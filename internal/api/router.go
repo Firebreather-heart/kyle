@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -18,6 +19,8 @@ import (
 	"github.com/firebreather-heart/kyle/internal/llm"
 	"github.com/firebreather-heart/kyle/internal/models"
 	"github.com/firebreather-heart/kyle/internal/orchestrator"
+	_ "github.com/firebreather-heart/kyle/docs" // Swagger docs
+	httpSwagger "github.com/swaggo/http-swagger/v2"
 )
 
 type FileStore interface {
@@ -51,7 +54,11 @@ func (r *Router) SetupRoutes(mux *http.ServeMux) http.Handler {
 	mux.HandleFunc("GET /api/v1/triangulate", r.handleTriangulate)
 	mux.HandleFunc("POST /api/v1/generate", r.handleGenerate)
 	mux.HandleFunc("GET /api/v1/tasks/{id}", r.handleGetTaskStatus)
+	mux.HandleFunc("GET /api/v1/download/{id}/pdf", r.handleDownloadPDF)
 	mux.HandleFunc("GET /api/v1/download/{id}", r.handleDownload)
+	mux.Handle("GET /docs/", httpSwagger.Handler(
+		httpSwagger.URL("/docs/doc.json"),
+	))
 
 	var handler http.Handler = middleware.Logger(mux)
 	handler = middleware.CORS(handler)
@@ -60,6 +67,15 @@ func (r *Router) SetupRoutes(mux *http.ServeMux) http.Handler {
 	return handler
 }
 
+// handleObtainCookieToken godoc
+// @Summary Obtain a session token
+// @Description Creates or retrieves a user identity based on fingerprint and sets a secure cookie.
+// @Tags Identity
+// @Accept json
+// @Produce json
+// @Param body body models.TokenRequest true "Fingerprint"
+// @Success 200 {object} identity.User
+// @Router /obtain-token [post]
 func (r *Router) handleObtainCookieToken(w http.ResponseWriter, req *http.Request) {
 	var body struct {
 		Fingerprint string `json:"fingerprint"`
@@ -84,19 +100,39 @@ func (r *Router) handleObtainCookieToken(w http.ResponseWriter, req *http.Reques
 		HttpOnly: true,
 		MaxAge:   31536000,
 	})
-	r.sendJSON(w, http.StatusOK, user)
+	status, _ := r.idService.GetSystemStatus(req.Context())
+	r.sendJSON(w, http.StatusOK, map[string]interface{}{
+		"user":          user,
+		"system_status": status,
+	})
 
 }
 
 func (r *Router) handleTriangulate(w http.ResponseWriter, req *http.Request) {
-	user := middleware.GetUser(req)
-	if user == nil {
-		r.sendJSON(w, http.StatusUnauthorized, map[string]string{"error": "unknown user"})
-		return
+	fp := req.Header.Get("X-Fingerprint")
+	var cookieVal string
+	if c, err := req.Cookie("kyle_id"); err == nil {
+		cookieVal = c.Value
 	}
-	r.sendJSON(w, http.StatusOK, user)
+
+	user, _ := r.idService.Triangulate(req.Context(), fp, cookieVal)
+	status, _ := r.idService.GetSystemStatus(req.Context())
+
+	r.sendJSON(w, http.StatusOK, map[string]interface{}{
+		"user":          user,
+		"system_status": status,
+	})
 }
 
+// handleGenerate godoc
+// @Summary Start AI Research Task
+// @Description Initiates an asynchronous research task and returns a task ID.
+// @Tags AI
+// @Accept json
+// @Produce json
+// @Param request body models.ClientRequest true "Research Topic & Provider"
+// @Success 202 {object} map[string]string "accepted, task_id"
+// @Router /generate [post]
 func (r *Router) handleGenerate(w http.ResponseWriter, req *http.Request) {
 	user := middleware.GetUser(req)
 	allowed, err := r.idService.AllowLLMCall(req.Context(), user.Fingerprint, user.ShadowCookie)
@@ -129,38 +165,81 @@ func (r *Router) handleGenerate(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	agent := orchestrator.NewAgent(engine)
+	// Initialize with active key if multi-key rotation is supported for this provider
+	providerKeys := r.cfg.GetProviderKeys(modelRequest.Provider)
+	if len(providerKeys) > 0 {
+		activeKey, _ := r.idService.GetActiveKey(req.Context(), modelRequest.Provider, providerKeys)
+		if activeKey != "" {
+			engine.UpdateAPIKey(activeKey)
+		}
+	}
+
+	agent := orchestrator.NewAgent(engine, r.idService, r.cfg, modelRequest.Provider)
 	taskID := r.generateSecureToken(8)
+
+	r.idService.RecordLLMUsage(req.Context(), user.Fingerprint, user.ShadowCookie)
 
 	go func() {
 		ctx := context.Background()
 		report := func(msg string) {
-			r.idService.PublishTaskUpdate(ctx, taskID, msg)
+			update := models.SSEUpdate{
+				Status:   "processing",
+				Progress: msg,
+				NewLogs:  []string{msg},
+			}
+			b, _ := json.Marshal(update)
+			r.idService.PublishTaskUpdate(ctx, taskID, string(b))
 		}
 
 		result := agent.Run(modelRequest.Topic, report)
 
-		if result.Status == "success" && result.Document != nil {
-			localFilename := fmt.Sprintf("research_%s.docx", strings.ReplaceAll(strings.ToLower(modelRequest.Topic), " ", "_"))
-			if err := docxgen.GenerateWordDoc(localFilename, result.Document); err != nil {
-				log.Printf("Error generating Word doc: %v", err)
-				report("Error: Pipeline succeeded but Word doc generation failed")
-				return
-			}
-			log.Printf("Local Word doc generated: %s", localFilename)
+		if strings.Contains(result.Message, "rate limit") {
+			r.idService.SetSystemStatus(ctx, modelRequest.Provider, "rate_limited", 2*time.Minute)
+		}
 
-			report("Uploading to cloud storage...")
-			cloudURL, err := r.fileStore.UploadFile(ctx, localFilename, taskID)
+		if result.Status == "success" && result.Document != nil {
+			// Generate requested assets
+			var primaryFile string
+			if modelRequest.Format == "pdf" {
+				primaryFile = fmt.Sprintf("research_%s.pdf", taskID)
+				if err := docxgen.GeneratePDF(primaryFile, result.Document); err != nil {
+					log.Printf("PDF gen failed: %v", err)
+				}
+			} else {
+				primaryFile = fmt.Sprintf("research_%s.docx", taskID)
+				if err := docxgen.GenerateWordDoc(primaryFile, result.Document); err != nil {
+					log.Printf("DOCX gen failed: %v", err)
+				}
+			}
+
+			log.Printf("Target asset generated: %s", primaryFile)
+
+			report(fmt.Sprintf("Finalizing research cloud-matrix (%s)...", strings.ToUpper(modelRequest.Format)))
+			cloudURL, err := r.fileStore.UploadFile(ctx, primaryFile, taskID)
 			if err != nil {
 				log.Printf("Cloud upload failed: %v", err)
-				report("Error: Cloud storage upload failed")
+				update := models.SSEUpdate{Status: "error", Progress: "Cloud upload failed"}
+				b, _ := json.Marshal(update)
+				r.idService.PublishTaskUpdate(ctx, taskID, string(b))
 				return
 			}
 
-			log.Printf("Document uploaded to cloud: %s", cloudURL)
-			report("COMPLETE:" + cloudURL)
+			r.idService.SetTaskFile(ctx, taskID, cloudURL)
+			update := models.SSEUpdate{
+				Status:   "complete",
+				Progress: fmt.Sprintf("Synthesis complete. %s finalized.", strings.ToUpper(modelRequest.Format)),
+				Complete: true,
+				Result:   cloudURL,
+			}
+			b, _ := json.Marshal(update)
+			r.idService.PublishTaskUpdate(ctx, taskID, string(b))
 		} else {
-			report("ERROR:" + result.Message)
+			update := models.SSEUpdate{
+				Status:   "error",
+				Progress: result.Message,
+			}
+			b, _ := json.Marshal(update)
+			r.idService.PublishTaskUpdate(ctx, taskID, string(b))
 		}
 	}()
 
@@ -172,6 +251,13 @@ func (r *Router) handleGenerate(w http.ResponseWriter, req *http.Request) {
 	r.idService.RecordLLMUsage(req.Context(), user.Fingerprint, user.ShadowCookie)
 }
 
+// handleGetTaskStatus godoc
+// @Summary Stream task progress
+// @Description Opens an SSE stream to track the research pipeline.
+// @Tags AI
+// @Param id path string true "Task ID"
+// @Success 200 {string} string "data: progress..."
+// @Router /tasks/{id} [get]
 func (r *Router) handleGetTaskStatus(w http.ResponseWriter, req *http.Request) {
 	taskID := req.PathValue("id")
 
@@ -209,8 +295,44 @@ func (r *Router) handleGetTaskStatus(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
+// handleDownload godoc
+// @Summary Download generated document
+// @Description Serves the completed Word document.
+// @Tags AI
+// @Param id path string true "Task ID"
+// @Produce application/vnd.openxmlformats-officedocument.wordprocessingml.document
+// @Success 200 {file} file
+// @Router /download/{id} [get]
 func (r *Router) handleDownload(w http.ResponseWriter, req *http.Request) {
-	// Logic for serving the .docx file
+	taskID := req.PathValue("id")
+	filePath, err := r.idService.GetTaskFile(req.Context(), taskID)
+	if err != nil || filePath == "" {
+		r.sendJSON(w, http.StatusNotFound, map[string]string{"error": "document not found"})
+		return
+	}
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filepath.Base(filePath)))
+	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+	http.ServeFile(w, req, filePath)
+}
+
+func (r *Router) handleDownloadPDF(w http.ResponseWriter, req *http.Request) {
+	taskID := req.PathValue("id")
+	filePath, err := r.idService.GetTaskFile(req.Context(), taskID)
+	if err != nil || filePath == "" {
+		r.sendJSON(w, http.StatusNotFound, map[string]string{"error": "document not found"})
+		return
+	}
+	// If filePath is a URL (Cloudinary), we should either redirect or proxy.
+	// For simplicity, we'll try to serve local file first if it exists, otherwise error for now.
+	// But actually, the frontend will likely use the result URL from SSE.
+	if strings.HasPrefix(filePath, "http") {
+		http.Redirect(w, req, filePath, http.StatusFound)
+		return
+	}
+	
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="kyle_research_%s.pdf"`, taskID))
+	w.Header().Set("Content-Type", "application/pdf")
+	http.ServeFile(w, req, filePath)
 }
 
 func (r *Router) sendJSON(w http.ResponseWriter, status int, data any) {

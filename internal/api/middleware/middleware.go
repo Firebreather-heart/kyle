@@ -40,9 +40,12 @@ func Authenticator(idService identity.Service) func(http.Handler) http.Handler {
 		return http.HandlerFunc(
 			func(w http.ResponseWriter, r *http.Request){
 				fp := r.Header.Get("X-Fingerprint")
-				cookie := r.Header.Get("Cookie")
+				var cookieVal string
+				if c, err := r.Cookie("kyle_id"); err == nil {
+					cookieVal = c.Value
+				}
 				
-				user, err := idService.Triangulate(r.Context(), fp, cookie)
+				user, err := idService.Triangulate(r.Context(), fp, cookieVal)
 				if err != nil {
 					log.Printf("Authentication error: %v", err)
 				}
@@ -57,9 +60,12 @@ func RateLimiter(idService identity.Service) func(http.Handler) http.Handler {
 		return http.HandlerFunc(
 			func(w http.ResponseWriter, r *http.Request){
 				fp := r.Header.Get("X-Fingerprint")
-				cookie := r.Header.Get("Cookie")
+				var cookieVal string
+				if c, err := r.Cookie("kyle_id"); err == nil {
+					cookieVal = c.Value
+				}
 				
-				allowed, err := idService.AllowRequest(r.Context(), fp, cookie)
+				allowed, err := idService.AllowRequest(r.Context(), fp, cookieVal)
 				if err != nil {
 					log.Printf("Rate limiting error: %v", err)
 				}

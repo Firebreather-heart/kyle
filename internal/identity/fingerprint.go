@@ -8,10 +8,9 @@ import (
 
 type User struct {
 	Fingerprint string `json:"fingerprint"`
-	ShadowCookie string `json:"shadow_cookie"`
+	ShadowCookie string `json:"-"`
 	DocsGeneratedToday int `json:"docs_generated_today"`
 	DailyLimitReached bool `json:"daily_limit_reached"`
-	LastResetAt time.Time `json:"last_reset_at"`
 }
 
 /*
@@ -26,6 +25,12 @@ type Service interface{
 	CreateOrUpdateUser(ctx context.Context, user User, ttl time.Duration) error
 	PublishTaskUpdate(ctx context.Context, taskID string, status string) error
 	SubscribeTask(ctx context.Context, taskID string) *redis.PubSub
+	SetTaskFile(ctx context.Context, taskID string, filePath string) error
+	GetTaskFile(ctx context.Context, taskID string) (string, error)
+	SetSystemStatus(ctx context.Context, provider string, status string, ttl time.Duration) error
+	GetSystemStatus(ctx context.Context) (map[string]string, error)
+	GetActiveKey(ctx context.Context, provider string, keys []string) (string, error)
+	RotateKey(ctx context.Context, provider string, keys []string) (string, error)
 }
 
 func NewUser(fingerprint string, cookie string) (*User, error){
@@ -34,6 +39,5 @@ func NewUser(fingerprint string, cookie string) (*User, error){
 		ShadowCookie: cookie,
 		DocsGeneratedToday: 0,
 		DailyLimitReached: false,
-		LastResetAt: time.Now(),
 	}, nil
 }

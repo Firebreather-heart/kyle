@@ -4,24 +4,43 @@ services:
       context: .
       dockerfile: Dockerfile.dev
     container_name: kyle-api
-    ports:
-      - "8080:8080"
+    command: air -c .air.toml
     volumes:
       - .:/app
     depends_on:
       - redis
     environment:
-      - REDIS_URL=redis://redis:6379/0
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - REDIS_ADDR=redis:6379
+      - GEMINI_API_KEYS=${GEMINI_API_KEYS}
       - KIMI_API_KEY=${KIMI_API_KEY}
       - SERVER_PORT=${SERVER_PORT}
       - CLOUDINARY_API_SECRET=${CLOUDINARY_API_SECRET}
       - CLOUDINARY_API_KEY=${CLOUDINARY_API_KEY}
       - CLOUDINARY_CLOUD_NAME=${CLOUDINARY_CLOUD_NAME}
 
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: kyle-frontend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - NEXT_PUBLIC_API_URL=/api/v1
+
+  nginx:
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
+    container_name: kyle-nginx
+    ports:
+      - "80:80"
+    depends_on:
+      - api
+      - frontend
+
   redis:
     image: redis:7-alpine
     container_name: kyle-redis
-    ports:
-      - "6379:6379"
     command: redis-server --save "" --appendonly no

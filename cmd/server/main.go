@@ -2,7 +2,6 @@ package main
 
 import (
 	"log"
-	"os"
 
 	"github.com/firebreather-heart/kyle/internal/api"
 	"github.com/firebreather-heart/kyle/internal/config"
@@ -11,18 +10,22 @@ import (
 	"net/http"
 )
 
+// @title Kyle AI Research API
+// @version 1.0
+// @description High-performance AI document generation and identity resolution API.
+// @host localhost:8080
+// @BasePath /api/v1
+
 func main() {
 	cfg := config.Load()
 
-	redisAddr := os.Getenv("REDIS_ADDR")
-	if redisAddr == "" {
-		redisAddr = "localhost:6379"
-	}
-	idStore, err := store.NewRedisStore(redisAddr)
+	log.Printf("DEBUG: Final Config - RedisAddr: %s, ServerPort: %s", cfg.RedisAddr, cfg.ServerPort)
+
+	idStore, err := store.NewRedisStore(cfg.RedisAddr)
 	if err != nil {
 		log.Fatalf("Failed to initialize Redis: %v", err)
 	}
-	log.Println("Redis connected at", redisAddr)
+	log.Println("Redis connected at", cfg.RedisAddr)
 
 	cldStore, err := store.NewCloudinaryStore(
 		cfg.CloudinaryCloudName,

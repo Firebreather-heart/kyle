@@ -1,16 +1,18 @@
 package orchestrator
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
 
+	"github.com/firebreather-heart/kyle/internal/config"
+	"github.com/firebreather-heart/kyle/internal/identity"
 	"github.com/firebreather-heart/kyle/internal/llm"
 	"github.com/firebreather-heart/kyle/internal/models"
 	"github.com/firebreather-heart/kyle/internal/scraper"
 )
-
 
 const (
 	PlannerSystemPrompt = `You are a Document Architect operating within an autonomous AI pipeline. Your sole function is structural analysis and section planning.
@@ -50,7 +52,7 @@ EXAMPLE OF INVALID OUTPUT (pipeline failure):
 ["Introduction", "How it works", "Conclusion"]
 (Failure reasons: severely lacks granularity, headers are generic, fails the 8-15 header mandate)`
 
-WriterSystemPrompt = `You are an Adaptive Document Synthesis Engine operating within an autonomous AI pipeline. Your function is to transform a Topic, an Outline, and source data into a strictly formatted JSON document.
+	WriterSystemPrompt = `You are an Adaptive Document Synthesis Engine operating within an autonomous AI pipeline. Your function is to transform a Topic, an Outline, and source data into a strictly formatted JSON document.
 
 INPUTS YOU WILL RECEIVE:
 1. Topic — the subject of the document
@@ -96,6 +98,7 @@ STRICT RULES:
 4. Every outline section must begin with an h2 or h1 header component.
 5. Use 'code_block' ONLY if the persona is technical. Use 'table' for financial/feature comparisons.
 6. Your entire response must be parseable as valid JSON. Any deviation is a critical pipeline failure.
+7. SEMANTIC KEYS: You MUST use the exact key "type" for all components. DO NOT use "type_", "kind", or any other variant.
 
 --- EXAMPLES ---
 
@@ -130,7 +133,7 @@ EXAMPLE OF INVALID OUTPUT (pipeline failure):
 {"type": "callout", "color": "#FF0000", "content": "..."}  — wrong field name, missing text_color
 {"type": "callout", "background_color": "red", "text_color": "#FFF", "icon": "info", "content": "..."}  — named color is not a valid hex code`
 
-VerifierSystemPrompt = `You are a ruthless QA validation engine operating within an autonomous AI pipeline. Your sole function is to audit a JSON document produced by the Writer and return a structured verification result.
+	VerifierSystemPrompt = `You are a ruthless QA validation engine operating within an autonomous AI pipeline. Your sole function is to audit a JSON document produced by the Writer and return a structured verification result.
 
 INPUT: A JSON array of component objects produced by the Writer stage.
 
@@ -142,7 +145,7 @@ EVALUATION CRITERIA — check all of the following:
    - heading_font MUST be one of: "Merriweather", "Playfair Display", "Montserrat", "Oswald"
    - body_font MUST be one of: "Lora", "Open Sans", "Roboto", "Georgia"
    - layout_density MUST be one of: "academic", "modern", "corporate"
-4. TYPE INTEGRITY — Does every object's "type" field use only permitted values?
+4. TYPE INTEGRITY — Does every object's "type" field use only permitted values? (Key name MUST be exactly "type").
    Permitted types: "document_meta", "h1", "h2", "h3", "paragraph", "callout", "code_block", "table", "unordered_list", "ordered_list".
 5. HEX COLOR VALIDITY — For every "callout" and "document_meta" object, do the color fields exist and contain valid 6-digit hex codes in the format #RRGGBB? Shorthand or named colors are failures.
 6. SCHEMA COMPLIANCE — Do all objects include the required fields for their declared type?
@@ -172,18 +175,6 @@ EXAMPLE 2 — Fail: Exhaustiveness Violation:
 Any response from you that is not a raw, valid JSON object matching this schema is itself a pipeline failure.`
 )
 
-type StatusReporter func(status string)
-
-type Agent struct {
-	engine llm.Provider
-}
-
-func NewAgent(engine llm.Provider) *Agent {
-	return &Agent{
-		engine: engine,
-	}
-}
-
 type AgentResult struct {
 	Status   string          `json:"status"`
 	Message  string          `json:"message"`
@@ -197,17 +188,36 @@ type VerifierVerdict struct {
 
 const MAX_LOOP_TURNS int = 3
 
-func (a *Agent) Run (topic string, report StatusReporter) AgentResult {
+type StatusReporter func(status string)
+
+type Agent struct {
+	engine     llm.Provider
+	idService  identity.Service
+	cfg        *config.AppConfig
+	provider   string
+}
+
+func NewAgent(engine llm.Provider, idService identity.Service, cfg *config.AppConfig, provider string) *Agent {
+	return &Agent{
+		engine:    engine,
+		idService: idService,
+		cfg:       cfg,
+		provider:  provider,
+	}
+}
+
+// Run executes the research pipeline.
+func (a *Agent) Run(topic string, report StatusReporter) AgentResult {
 	log.Println("Routing to Planner Agent")
 	report("Routing to Planner Agent")
 
 	var messages []models.Prompt = []models.Prompt{
 		{
-			Role: "system", 
+			Role:    "system",
 			Content: PlannerSystemPrompt,
 		},
 		{
-			Role: "user", 
+			Role:    "user",
 			Content: fmt.Sprintf("Plan an article about: %s", topic),
 		},
 	}
@@ -215,14 +225,31 @@ func (a *Agent) Run (topic string, report StatusReporter) AgentResult {
 	var scrapedData string
 	var finalOutline string
 
-	for i:=0; i < MAX_LOOP_TURNS; i++{
+	for i := 0; i < MAX_LOOP_TURNS; i++ {
 		log.Printf("Planner Iteration %d", i+1)
 		report(fmt.Sprintf("Planner Iteration %d", i+1))
+
 		resp := a.engine.GenerateComplex(messages, GetSearchTool())
+		if resp.StatusCode == 429 {
+			log.Printf("Planner: Upstream rate limit reached. Attempting key rotation for %s...", a.provider)
+			report("Provider rotation active...")
+			newKey, err := a.idService.RotateKey(context.Background(), a.provider, a.cfg.GetProviderKeys(a.provider))
+			if err != nil {
+				log.Printf("Rotation failure: %v", err)
+				return AgentResult{Status: "error", Message: "Provider capacity exhausted."}
+			}
+			a.engine.UpdateAPIKey(newKey)
+			// Retry once immediately
+			resp = a.engine.GenerateComplex(messages, GetSearchTool())
+			if resp.StatusCode == 429 {
+				return AgentResult{Status: "error", Message: "All provider keys exhausted. Please wait."}
+			}
+		}
+
 		if resp.Error != nil {
 			return AgentResult{Status: "error", Message: "Planner Error: " + resp.Error.Error()}
 		}
-		if resp.ToolCall != nil{
+		if resp.ToolCall != nil {
 			var args struct {
 				Query string `json:"query"`
 			}
@@ -263,7 +290,7 @@ func (a *Agent) Run (topic string, report StatusReporter) AgentResult {
 
 	log.Println("Routing to Writer Agent")
 	report("Routing to Writer Agent")
-	
+
 	sourceContext := scrapedData
 	if sourceContext == "" {
 		sourceContext = "None"
@@ -271,9 +298,19 @@ func (a *Agent) Run (topic string, report StatusReporter) AgentResult {
 	writerInput := fmt.Sprintf("Topic: %s\nOutline: %s\nSource Context: %s", topic, finalOutline, sourceContext)
 	writerResp := a.engine.Generate(WriterSystemPrompt, writerInput)
 
-	if writerResp.Error != nil{
+	if writerResp.StatusCode == 429 {
+		log.Printf("Writer: Upstream rate limit reached. Attempting key rotation for %s...", a.provider)
+		report("Provider rotation active...")
+		newKey, _ := a.idService.RotateKey(context.Background(), a.provider, a.cfg.GetProviderKeys(a.provider))
+		if newKey != "" {
+			a.engine.UpdateAPIKey(newKey)
+			writerResp = a.engine.Generate(WriterSystemPrompt, writerInput)
+		}
+	}
+
+	if writerResp.Error != nil {
 		return AgentResult{
-			Status:"error",
+			Status:  "error",
 			Message: "Writer Error: " + writerResp.Error.Error(),
 		}
 	}
@@ -308,6 +345,16 @@ func (a *Agent) Run (topic string, report StatusReporter) AgentResult {
 	report("Routing to Verifier Agent")
 	var verdict VerifierVerdict
 	verifierResp := a.engine.Generate(VerifierSystemPrompt, cleanWriterResp)
+
+	if verifierResp.StatusCode == 429 {
+		log.Printf("Verifier: Upstream rate limit reached. Attempting key rotation for %s...", a.provider)
+		report("Provider rotation active...")
+		newKey, _ := a.idService.RotateKey(context.Background(), a.provider, a.cfg.GetProviderKeys(a.provider))
+		if newKey != "" {
+			a.engine.UpdateAPIKey(newKey)
+			verifierResp = a.engine.Generate(VerifierSystemPrompt, cleanWriterResp)
+		}
+	}
 
 	cleanVerifierResp := stripMarkdownFences(verifierResp.Response)
 	if err := json.Unmarshal([]byte(cleanVerifierResp), &verdict); err != nil {

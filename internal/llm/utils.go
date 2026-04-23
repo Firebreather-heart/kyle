@@ -33,7 +33,8 @@ func SendPrompt(payload models.LLMRequest, c models.LLMClient) models.LLMRespons
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body)
 		return models.LLMResponse{
-			Error: fmt.Errorf("API error %d: %s", resp.StatusCode, string(bodyBytes)),
+			StatusCode: resp.StatusCode,
+			Error:      fmt.Errorf("API error %d: %s", resp.StatusCode, string(bodyBytes)),
 		}
 	}
 

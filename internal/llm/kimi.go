@@ -36,6 +36,10 @@ func (c *KIMIClient) GenerateComplex(messages []models.Prompt, tools []models.To
 	return SendPrompt(payload, c.LLMClient)
 }
 
+func (c *KIMIClient) UpdateAPIKey(apiKey string) {
+	c.APIKey = apiKey
+}
+
 func NewKIMIClient(apiKey string) *KIMIClient {
 	return &KIMIClient{
 		LLMClient: models.LLMClient{

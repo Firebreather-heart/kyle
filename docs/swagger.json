@@ -1,0 +1,177 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "description": "High-performance AI document generation and identity resolution API.",
+        "title": "Kyle AI Research API",
+        "contact": {},
+        "version": "1.0"
+    },
+    "host": "localhost:8080",
+    "basePath": "/api/v1",
+    "paths": {
+        "/download/{id}": {
+            "get": {
+                "description": "Serves the completed Word document.",
+                "produces": [
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                ],
+                "tags": [
+                    "AI"
+                ],
+                "summary": "Download generated document",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Task ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
+                        }
+                    }
+                }
+            }
+        },
+        "/generate": {
+            "post": {
+                "description": "Initiates an asynchronous research task and returns a task ID.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "AI"
+                ],
+                "summary": "Start AI Research Task",
+                "parameters": [
+                    {
+                        "description": "Research Topic \u0026 Provider",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/models.ClientRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "accepted, task_id",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/obtain-token": {
+            "post": {
+                "description": "Creates or retrieves a user identity based on fingerprint and sets a secure cookie.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Identity"
+                ],
+                "summary": "Obtain a session token",
+                "parameters": [
+                    {
+                        "description": "Fingerprint",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/models.TokenRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/identity.User"
+                        }
+                    }
+                }
+            }
+        },
+        "/tasks/{id}": {
+            "get": {
+                "description": "Opens an SSE stream to track the research pipeline.",
+                "tags": [
+                    "AI"
+                ],
+                "summary": "Stream task progress",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Task ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "data: progress...",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "identity.User": {
+            "type": "object",
+            "properties": {
+                "daily_limit_reached": {
+                    "type": "boolean"
+                },
+                "docs_generated_today": {
+                    "type": "integer"
+                },
+                "fingerprint": {
+                    "type": "string"
+                }
+            }
+        },
+        "models.ClientRequest": {
+            "type": "object",
+            "properties": {
+                "format": {
+                    "type": "string"
+                },
+                "provider": {
+                    "type": "string"
+                },
+                "topic": {
+                    "type": "string"
+                }
+            }
+        },
+        "models.TokenRequest": {
+            "type": "object",
+            "properties": {
+                "fingerprint": {
+                    "type": "string"
+                }
+            }
+        }
+    }
+}

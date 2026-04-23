@@ -36,6 +36,10 @@ func (c *GeminiClient) GenerateComplex(messages []models.Prompt, tools []models.
 	return SendPrompt(payload, c.LLMClient)
 }
 
+func (c *GeminiClient) UpdateAPIKey(apiKey string) {
+	c.APIKey = apiKey
+}
+
 func NewGeminiClient(apiKey string) *GeminiClient {
 	return &GeminiClient{
 		LLMClient: models.LLMClient{
