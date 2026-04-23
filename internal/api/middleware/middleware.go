@@ -52,6 +52,26 @@ func Authenticator(idService identity.Service) func(http.Handler) http.Handler {
 	}
 }
 
+func RateLimiter(idService identity.Service) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(
+			func(w http.ResponseWriter, r *http.Request){
+				fp := r.Header.Get("X-Fingerprint")
+				cookie := r.Header.Get("Cookie")
+				
+				allowed, err := idService.AllowRequest(r.Context(), fp, cookie)
+				if err != nil {
+					log.Printf("Rate limiting error: %v", err)
+				}
+				if !allowed {
+					http.Error(w, "Rate limit exceeded", http.StatusTooManyRequests)
+					return
+				}
+				next.ServeHTTP(w, r)
+			})
+	}
+}
+
 func GetUser(r *http.Request) *identity.User {
 	if user, ok := r.Context().Value(userKey).(*identity.User); ok {
 		return user

@@ -3,6 +3,7 @@ package identity
 import (
 	"context"
 	"time"
+	"github.com/redis/go-redis/v9"
 )
 
 type User struct {
@@ -19,6 +20,12 @@ type User struct {
 */
 type Service interface{
 	Triangulate(ctx context.Context, fingerprint string, cookie string)(*User, error)
+	AllowRequest(ctx context.Context, fingerprint string, cookie string) (bool, error)
+	AllowLLMCall(ctx context.Context, fingerprint string, cookie string) (bool, error)
+	RecordLLMUsage(ctx context.Context, fingerprint string, cookie string) error
+	CreateOrUpdateUser(ctx context.Context, user User, ttl time.Duration) error
+	PublishTaskUpdate(ctx context.Context, taskID string, status string) error
+	SubscribeTask(ctx context.Context, taskID string) *redis.PubSub
 }
 
 func NewUser(fingerprint string, cookie string) (*User, error){

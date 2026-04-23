@@ -11,6 +11,7 @@ import (
 	"github.com/firebreather-heart/kyle/internal/scraper"
 )
 
+
 const (
 	PlannerSystemPrompt = `You are a Document Architect operating within an autonomous AI pipeline. Your sole function is structural analysis and section planning.
 
@@ -171,6 +172,8 @@ EXAMPLE 2 — Fail: Exhaustiveness Violation:
 Any response from you that is not a raw, valid JSON object matching this schema is itself a pipeline failure.`
 )
 
+type StatusReporter func(status string)
+
 type Agent struct {
 	engine llm.Provider
 }
@@ -194,8 +197,9 @@ type VerifierVerdict struct {
 
 const MAX_LOOP_TURNS int = 3
 
-func (a *Agent) Run (topic string) AgentResult {
+func (a *Agent) Run (topic string, report StatusReporter) AgentResult {
 	log.Println("Routing to Planner Agent")
+	report("Routing to Planner Agent")
 
 	var messages []models.Prompt = []models.Prompt{
 		{
@@ -213,6 +217,7 @@ func (a *Agent) Run (topic string) AgentResult {
 
 	for i:=0; i < MAX_LOOP_TURNS; i++{
 		log.Printf("Planner Iteration %d", i+1)
+		report(fmt.Sprintf("Planner Iteration %d", i+1))
 		resp := a.engine.GenerateComplex(messages, GetSearchTool())
 		if resp.Error != nil {
 			return AgentResult{Status: "error", Message: "Planner Error: " + resp.Error.Error()}
@@ -223,15 +228,19 @@ func (a *Agent) Run (topic string) AgentResult {
 			}
 			if err := json.Unmarshal([]byte(resp.ToolCall.Function.Arguments), &args); err != nil{
 				log.Printf("Failed to unmarshal tool call arguments: %v", err)
+				report("Tool call failed")
 				break
 			}
 			log.Printf("Calling Scraper tool: %s", args.Query)
+			report("Calling Scraper tool: " + args.Query)
 			results, err := scraper.ExecuteSearch(args.Query)
 			if err != nil{
 				log.Printf("Scraper error: %s", err)
+				report("Scraper error: " + err.Error())
 				results = "Search unavailable, use internal knowledge"
 			}
 			log.Printf("Executing Web Search: %s", args.Query)
+			report("Executing Web Search: " + args.Query)
 
 			messages = append(messages, models.Prompt{
 				Role:             "assistant",
@@ -253,6 +262,7 @@ func (a *Agent) Run (topic string) AgentResult {
 	}
 
 	log.Println("Routing to Writer Agent")
+	report("Routing to Writer Agent")
 	
 	sourceContext := scrapedData
 	if sourceContext == "" {
@@ -272,6 +282,7 @@ func (a *Agent) Run (topic string) AgentResult {
 	var validateBlocks []models.AIBlock
 	if err := json.Unmarshal([]byte(cleanWriterResp), &validateBlocks); err != nil {
 		log.Printf("Writer produced invalid JSON, attempting one correction pass: %v", err)
+		report("Writer produced invalid JSON, attempting one correction pass: " + err.Error())
 
 		correctionPrompt := fmt.Sprintf(
 			"The following document JSON is malformed. Fix ALL syntax errors and return ONLY a valid raw JSON array. No markdown, no explanation.\n\nERROR: %v\n\nBROKEN JSON:\n%s",
@@ -284,6 +295,7 @@ func (a *Agent) Run (topic string) AgentResult {
 		cleanWriterResp = stripMarkdownFences(corrResp.Response)
 		if err2 := json.Unmarshal([]byte(cleanWriterResp), &validateBlocks); err2 != nil {
 			log.Printf("Writer JSON still invalid after correction: %v", err2)
+			report("Writer JSON still invalid after correction: " + err2.Error())
 			return AgentResult{
 				Status:  "error",
 				Message: fmt.Sprintf("Writer produced malformed JSON that could not be corrected: %v", err2),
@@ -293,18 +305,21 @@ func (a *Agent) Run (topic string) AgentResult {
 	}
 
 	log.Println("Routing to Verifier Agent")
+	report("Routing to Verifier Agent")
 	var verdict VerifierVerdict
 	verifierResp := a.engine.Generate(VerifierSystemPrompt, cleanWriterResp)
 
 	cleanVerifierResp := stripMarkdownFences(verifierResp.Response)
 	if err := json.Unmarshal([]byte(cleanVerifierResp), &verdict); err != nil {
 		log.Printf("Verifier returned invalid JSON: %v", err)
+		report("Verifier returned invalid JSON: " + err.Error())
 		verdict.Status = "fail"
 		verdict.Reason = "QA Check failed to parse editor response."
 	}
 
 	if verdict.Status == "fail" {
 		log.Printf("Document flagged as substandard: %s", verdict.Reason)
+		report("Document flagged as substandard: " + verdict.Reason)
 		return AgentResult{
 			Status:   "substandard",
 			Message:  "Editor Note: " + verdict.Reason,
@@ -313,6 +328,7 @@ func (a *Agent) Run (topic string) AgentResult {
 	}
 
 	log.Println("Pipeline Complete: Document verified successfully.")
+	report("Pipeline Complete: Document verified successfully.")
 	return AgentResult{
 		Status:   "success",
 		Message:  "Document generated and verified.",

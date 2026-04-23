@@ -12,6 +12,9 @@ type AppConfig struct{
 	ServerPort string
 	MaxScrapeTokens int
 	DAILY_RATE_LIMIT int
+	CloudinaryCloudName string
+	CloudinaryAPIKey    string
+	CloudinaryAPISecret string
 }
 
 /*
@@ -28,6 +31,9 @@ func Load() *AppConfig{
 		ServerPort: getEnvOrDefault("SERVER_PORT", "8080"),
 		MaxScrapeTokens: 10000,
 		DAILY_RATE_LIMIT: 5,
+		CloudinaryCloudName: os.Getenv("CLOUDINARY_CLOUD_NAME"),
+		CloudinaryAPIKey:    os.Getenv("CLOUDINARY_API_KEY"),
+		CloudinaryAPISecret: os.Getenv("CLOUDINARY_API_SECRET"),
 	}
 }
 
